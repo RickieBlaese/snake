@@ -154,17 +154,18 @@ public:
          * there is probably a better way to do this */
         std::int32_t cx = headx, cy = heady;
         for (std::int32_t pi = 0; pi < body.size(); pi++) {
+
             const SnakeBody& piece = body[pi];
             for (std::int32_t i = 0; i < piece.count; i++) {
 
                 std::int32_t cx2 = headx, cy2 = heady;
                 for (std::int32_t pi2 = 0; pi2 < body.size(); pi2++) {
+
                     const SnakeBody& piece2 = body[pi2];
                     for (std::int32_t j = 0; j < piece2.count; j++) {
-                        /* same piece cannot intersect with itself, avoid self intersection */
-                        if (pi == pi2) { continue; }
 
-                        if (cy2 == cy && cx2 == cx) {
+                        /* same piece cannot intersect with itself, avoid self intersection */
+                        if ((pi != pi2) && (cy2 == cy && cx2 == cx)) {
                             return true;
                         }
 
