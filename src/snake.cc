@@ -119,6 +119,10 @@ public:
         std::int32_t cx = headx, cy = heady;
         for (const SnakeBody& piece : body) {
             for (std::int32_t i = 0; i < piece.count; i++) {
+                if (y == cy && x == cx) {
+                    return true;
+                }
+
                 switch (piece.direction) {
                     case Direction::up:
                         cy--;
@@ -135,10 +139,6 @@ public:
                     case Direction::right:
                         cx++;
                         break;
-                }
-
-                if (y == cy && x == cx) {
-                    return true;
                 }
             }
         }
@@ -156,28 +156,18 @@ public:
         for (std::int32_t pi = 0; pi < body.size(); pi++) {
             const SnakeBody& piece = body[pi];
             for (std::int32_t i = 0; i < piece.count; i++) {
-                switch (piece.direction) {
-                    case Direction::up:
-                        cy--;
-                        break;
-
-                    case Direction::down:
-                        cy++;
-                        break;
-
-                    case Direction::left:
-                        cx--;
-                        break;
-
-                    case Direction::right:
-                        cx++;
-                        break;
-                }
 
                 std::int32_t cx2 = headx, cy2 = heady;
                 for (std::int32_t pi2 = 0; pi2 < body.size(); pi2++) {
                     const SnakeBody& piece2 = body[pi2];
                     for (std::int32_t j = 0; j < piece2.count; j++) {
+                        /* same piece cannot intersect with itself, avoid self intersection */
+                        if (pi == pi2) { continue; }
+
+                        if (cy2 == cy && cx2 == cx) {
+                            return true;
+                        }
+
                         switch (piece2.direction) {
                             case Direction::up:
                                 cy2--;
@@ -195,14 +185,25 @@ public:
                                 cx2++;
                                 break;
                         }
-
-                        /* same piece cannot intersect with itself, avoid self intersection */
-                        if (pi == pi2) { continue; }
-
-                        if (cy2 == cy && cx2 == cx) {
-                            return true;
-                        }
                     }
+                }
+
+                switch (piece.direction) {
+                    case Direction::up:
+                        cy--;
+                        break;
+
+                    case Direction::down:
+                        cy++;
+                        break;
+
+                    case Direction::left:
+                        cx--;
+                        break;
+
+                    case Direction::right:
+                        cx++;
+                        break;
                 }
             }
         }
