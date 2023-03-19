@@ -1,3 +1,4 @@
+#include <exception>
 #include <iostream>
 #include <mutex>
 #include <vector>
@@ -42,6 +43,22 @@ Direction reflect(const Direction& direction) {
     return static_cast<Direction>(5 - direction);
 }
 
+std::string direction_to_str(const Direction& direction) {
+    switch (direction) {
+        case Direction::up:
+            return "up";
+
+        case Direction::down:
+            return "down";
+
+        case Direction::left:
+            return "left";
+
+        case Direction::right:
+            return "right";
+    }
+}
+
 /* should be read from head to tail */
 struct SnakeBody {
     std::int32_t count = 0;
@@ -59,15 +76,18 @@ public:
     std::int32_t heady = 0, headx = 0;
     std::vector<SnakeBody> body = {SnakeBody(1, Direction::up)};
 
-    Game(std::int32_t y, std::int32_t x) : y(y), x(x), cells(new bool*[x]), heady(y/2), headx(x/2) {
-        for (std::int32_t i = 0; i < x; i++) {
-            cells[i] = new bool[y];
+    Game(std::int32_t y, std::int32_t x) : y(y), x(x), cells(new bool*[y]), heady(y/2), headx(x/2) {
+        for (std::int32_t j = 0; j < y; j++) {
+            cells[j] = new bool[x];
+            for (std::int32_t i = 0; i < x; i++) {
+                cells[j][i] = false;
+            }
         }
     }
 
     ~Game() {
-        for (std::int32_t i = 0; i < x; i++) {
-            delete[] cells[i];
+        for (std::int32_t j = 0; j < y; j++) {
+            delete[] cells[j];
         }
         delete[] cells;
     }
@@ -252,7 +272,7 @@ public:
 
 int main() {
     static constexpr std::int32_t max_input_size = 50;
-    static constexpr std::uint64_t visual_wait_ns = 200'000'000ULL;
+    static constexpr std::uint64_t visual_wait_ns = 100'000'000ULL;
 
     std::setlocale(LC_ALL, "");
 
@@ -262,18 +282,34 @@ int main() {
     char in[max_input_size + 1];
     std::int32_t x = 0, y = 0;
 
-    waddstr(win, "x size: ");
-    wgetnstr(win, in, max_input_size);
-    x = std::stoi(in);
+    try {
+        waddstr(win, "x size: ");
+        wgetnstr(win, in, max_input_size);
+        x = std::stoi(in);
+        if (x == 0) {
+            throw std::exception();
+        }
 
-    waddstr(win, "y size: ");
-    wgetnstr(win, in, max_input_size);
-    y = std::stoi(in);
+        waddstr(win, "y size: ");
+        wgetnstr(win, in, max_input_size);
+        y = std::stoi(in);
+        if (y == 0) {
+            throw std::exception();
+        }
+    } catch (std::exception& e) {
+        std::cerr << e.what() << '\n';
+        deinit_ncurses(win);
+        std::cerr << "error: bad size entered\n";
+        return 1;
+    }
     
     curs_set(0);
     noecho();
 
     Game game(y, x);
+    if (std::max(y, x) == x) {
+        game.head()->direction = Direction::left;
+    }
 
     std::random_device device{};
     std::default_random_engine engine(device());
@@ -282,13 +318,17 @@ int main() {
 
     game.cells[ydist(engine)][xdist(engine)] = true; /* init food */
     
-    std::atomic<Direction> curdir{Direction::up};
+    std::atomic<Direction> curdir = game.head()->direction;
     std::atomic_bool end_flag = false;
 
     auto displayl = [&](const std::stop_token& stoken) {
+        bool first = true;
         while (!stoken.stop_requested()) {
             std::uint64_t last_time = get_current_time();
-            while (get_current_time() - last_time < visual_wait_ns && !stoken.stop_requested()) {;}
+            if (!first) {
+                while (get_current_time() - last_time < visual_wait_ns && !stoken.stop_requested()) {;}
+            }
+            first = false;
             Direction hdir = reflect(game.head()->direction);
 
             /* stop from going in opposite or same direction */
@@ -371,7 +411,7 @@ int main() {
     deinit_ncurses(win);
 
     for (const SnakeBody& piece : game.body) {
-        std::cout << piece.count << ' ' << piece.direction << '\n';
+        std::cout << "count: " << piece.count << ", direction: " << direction_to_str(piece.direction) << '\n';
     }
     
     return 0;
