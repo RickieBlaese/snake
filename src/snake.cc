@@ -212,14 +212,14 @@ public:
         return false;
     }
 
-    void out(WINDOW *win) {
+    void out(WINDOW *win, std::int32_t offy, std::int32_t offx) {
         for (std::int32_t i = 0; i < x; i++) {
             for (std::int32_t j = 0; j < y; j++) {
-                mvwaddwstr(win, j, i, cells[j][i] ? L"*" : L" ");
+                mvwaddwstr(win, j + offy, i + offx, cells[j][i] ? L"*" : L" ");
             }
         }
 
-        wmove(win, heady, headx);
+        wmove(win, heady + offy, headx + offx);
         for (const SnakeBody& piece : body) {
             for (std::int32_t i = 0; i < piece.count; i++) {
                 std::int32_t cury = 0, curx = 0;
@@ -264,11 +264,11 @@ int main() {
 
     waddstr(win, "x size: ");
     wgetnstr(win, in, max_input_size);
-    x = std::atoi(in);
+    x = std::stoi(in);
 
     waddstr(win, "y size: ");
     wgetnstr(win, in, max_input_size);
-    y = std::atoi(in);
+    y = std::stoi(in);
     
     curs_set(0);
     noecho();
@@ -285,18 +285,17 @@ int main() {
     std::atomic<Direction> curdir{Direction::up};
     std::atomic_bool end_flag = false;
 
-    auto displayl = [&](std::stop_token stoken) {
+    auto displayl = [&](const std::stop_token& stoken) {
         while (!stoken.stop_requested()) {
             std::uint64_t last_time = get_current_time();
             while (get_current_time() - last_time < visual_wait_ns && !stoken.stop_requested()) {;}
             Direction hdir = reflect(game.head()->direction);
-            if (curdir != hdir && (
-                (curdir == Direction::up && hdir != Direction::down) ||
-                (curdir == Direction::down && hdir != Direction::up) ||
-                (curdir == Direction::left && hdir != Direction::right) ||
-                (curdir == Direction::right && hdir != Direction::left))) {
+
+            /* stop from going in opposite or same direction */
+            if (curdir != hdir && curdir != reflect(hdir)) {
                 game.body.insert(game.body.begin(), SnakeBody(0, reflect(curdir)));
             }
+
             if (game.advance()) {
                 std::int32_t fy = ydist(engine), fx = xdist(engine);
                 while (game.body_intersects(fy, fx) && !game.cells[fy][fx]) {
@@ -305,11 +304,27 @@ int main() {
                 }
                 game.cells[fy][fx] = true;
             }
+
             if (game.is_out()) {
                 end_flag = true;
                 return;
             }
-            game.out(win);
+
+            for (std::int32_t j = 0; j < y + 2; j += y + 1) {
+                for (std::int32_t i = 1; i < x + 1; i++) { 
+                    mvwaddwstr(win, j, i, L"━");
+                }
+            }
+            for (std::int32_t i = 0; i < x + 2; i += x + 1) { 
+                for (std::int32_t j = 1; j < y + 1; j++) {
+                    mvwaddwstr(win, j, i, L"┃");
+                }
+            }
+            mvwaddwstr(win, 0, 0, L"┏");
+            mvwaddwstr(win, 0, x + 1, L"┓");
+            mvwaddwstr(win, y + 1, 0, L"┗");
+            mvwaddwstr(win, y + 1, x + 1, L"┛");
+            game.out(win, 1, 1);
         }
     };
 
