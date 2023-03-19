@@ -1,7 +1,9 @@
 #include <iostream>
+#include <mutex>
 #include <vector>
 #include <random>
 #include <chrono>
+#include <locale>
 #include <thread>
 
 #include <cinttypes>
@@ -33,10 +35,20 @@ enum Direction : std::uint32_t {
     up, down, left, right
 };
 
+Direction reflect(const Direction& direction) {
+    if (direction < 2) {
+        return static_cast<Direction>(1 - direction);
+    }
+    return static_cast<Direction>(5 - direction);
+}
+
 /* should be read from head to tail */
 struct SnakeBody {
     std::int32_t count = 0;
     Direction direction = Direction::up;
+
+    SnakeBody() = default;
+    SnakeBody(std::int32_t count, Direction direction) : count(count), direction(direction) {}
 };
 
 
@@ -45,9 +57,9 @@ public:
     std::int32_t y = 0, x = 0;
     bool **cells; /* true if food, false otherwise */
     std::int32_t heady = 0, headx = 0;
-    std::vector<SnakeBody> body;
+    std::vector<SnakeBody> body = {SnakeBody(1, Direction::up)};
 
-    Game(std::int32_t y, std::int32_t x) : y(y), x(x), cells(new bool*[x]) {
+    Game(std::int32_t y, std::int32_t x) : y(y), x(x), cells(new bool*[x]), heady(y/2), headx(x/2) {
         for (std::int32_t i = 0; i < x; i++) {
             cells[i] = new bool[y];
         }
@@ -60,15 +72,21 @@ public:
         delete[] cells;
     }
 
+    std::vector<SnakeBody>::iterator head() { return body.begin(); }
+    std::vector<SnakeBody>::iterator tail() { return body.end() - 1; }
+
     void grow(std::int32_t amt = 1) {
-        (body.end() - 1)->count += amt;
+        tail()->count += amt;
     }
 
-    void advance() {
-        for (SnakeBody& piece : body) {
-            piece.count++;
+    /* return: true if grew, false otherwise */
+    bool advance() {
+        head()->count++;
+        tail()->count--;
+        if (tail()->count <= 0) {
+            body.erase(tail());
         }
-        switch (body.begin()->direction) {
+        switch (reflect(head()->direction)) {
             case Direction::up:
                 heady--;
                 break;
@@ -86,16 +104,116 @@ public:
                 break;
         }
 
-        if (cells[headx][heady]) {
-            grow();
+        /* prevent segfault from reading at this pos */
+        if (headx >= 0 && headx < x && heady >= 0 && heady < y) {
+            if (cells[heady][headx]) {
+                grow();
+                cells[heady][headx] = false; /* consumed */
+                return true;
+            }
         }
-        
+        return false;
+    }
+
+    bool body_intersects(std::int32_t y, std::int32_t x) {
+        std::int32_t cx = headx, cy = heady;
+        for (const SnakeBody& piece : body) {
+            for (std::int32_t i = 0; i < piece.count; i++) {
+                switch (piece.direction) {
+                    case Direction::up:
+                        cy--;
+                        break;
+
+                    case Direction::down:
+                        cy++;
+                        break;
+
+                    case Direction::left:
+                        cx--;
+                        break;
+
+                    case Direction::right:
+                        cx++;
+                        break;
+                }
+
+                if (y == cy && x == cx) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool is_out() {
+        if (headx < 0 || headx >= x || heady < 0 || heady >= y) {
+            return true;
+        }
+
+        /* this is not performant but a side effect of the structure
+         * there is probably a better way to do this */
+        std::int32_t cx = headx, cy = heady;
+        for (std::int32_t pi = 0; pi < body.size(); pi++) {
+            const SnakeBody& piece = body[pi];
+            for (std::int32_t i = 0; i < piece.count; i++) {
+                switch (piece.direction) {
+                    case Direction::up:
+                        cy--;
+                        break;
+
+                    case Direction::down:
+                        cy++;
+                        break;
+
+                    case Direction::left:
+                        cx--;
+                        break;
+
+                    case Direction::right:
+                        cx++;
+                        break;
+                }
+
+                std::int32_t cx2 = headx, cy2 = heady;
+                for (std::int32_t pi2 = 0; pi2 < body.size(); pi2++) {
+                    const SnakeBody& piece2 = body[pi2];
+                    for (std::int32_t j = 0; j < piece2.count; j++) {
+                        switch (piece2.direction) {
+                            case Direction::up:
+                                cy2--;
+                                break;
+
+                            case Direction::down:
+                                cy2++;
+                                break;
+
+                            case Direction::left:
+                                cx2--;
+                                break;
+
+                            case Direction::right:
+                                cx2++;
+                                break;
+                        }
+
+                        /* same piece cannot intersect with itself, avoid self intersection */
+                        if (pi == pi2) { continue; }
+
+                        if (cy2 == cy && cx2 == cx) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     void out(WINDOW *win) {
         for (std::int32_t i = 0; i < x; i++) {
             for (std::int32_t j = 0; j < y; j++) {
-                mvwaddstr(win, j, i * 2, cells[i][j] ? "()" : "  ");
+                mvwaddwstr(win, j, i, cells[j][i] ? L"*" : L" ");
             }
         }
 
@@ -104,35 +222,37 @@ public:
             for (std::int32_t i = 0; i < piece.count; i++) {
                 std::int32_t cury = 0, curx = 0;
                 getyx(win, cury, curx);
+                waddwstr(win, L"█");
+                wmove(win, cury, curx);
                 switch (piece.direction) {
                     case Direction::up:
-                        wmove(win, cury - 1, curx * 2);
+                        wmove(win, cury - 1, curx);
                         break;
 
                     case Direction::down:
-                        wmove(win, cury + 1, curx * 2);
+                        wmove(win, cury + 1, curx);
                         break;
 
                     case Direction::left:
-                        wmove(win, cury, (curx - 1) * 2);
+                        wmove(win, cury, curx - 1);
                         break;
 
                     case Direction::right:
-                        wmove(win, cury, (curx + 1) * 2);
+                        wmove(win, cury, curx + 1);
                         break;
-
                 }
-                waddstr(win, "##");
             }
         }
     }
 
-        
 };
+
 
 int main() {
     static constexpr std::int32_t max_input_size = 50;
-    static constexpr std::uint64_t visual_wait_ns = 500'000'000ULL;
+    static constexpr std::uint64_t visual_wait_ns = 200'000'000ULL;
+
+    std::setlocale(LC_ALL, "");
 
     WINDOW *win = init_ncurses();
     wmove(win, 0, 0);
@@ -151,29 +271,57 @@ int main() {
     curs_set(0);
     noecho();
 
-
     Game game(y, x);
 
     std::random_device device{};
     std::default_random_engine engine(device());
     std::uniform_int_distribution<> ydist(0, y - 1);
     std::uniform_int_distribution<> xdist(0, x - 1);
+
+    game.cells[ydist(engine)][xdist(engine)] = true; /* init food */
     
-    std::atomic<Direction> curdir = Direction::up;
+    std::atomic<Direction> curdir{Direction::up};
+    std::atomic_bool end_flag = false;
 
     auto displayl = [&](std::stop_token stoken) {
-        std::uint64_t last_time = get_current_time();
         while (!stoken.stop_requested()) {
-            while (get_current_time() - last_time < visual_wait_ns) {;}
-            /* do weird direction checking */
+            std::uint64_t last_time = get_current_time();
+            while (get_current_time() - last_time < visual_wait_ns && !stoken.stop_requested()) {;}
+            Direction hdir = reflect(game.head()->direction);
+            if (curdir != hdir && (
+                (curdir == Direction::up && hdir != Direction::down) ||
+                (curdir == Direction::down && hdir != Direction::up) ||
+                (curdir == Direction::left && hdir != Direction::right) ||
+                (curdir == Direction::right && hdir != Direction::left))) {
+                game.body.insert(game.body.begin(), SnakeBody(0, reflect(curdir)));
+            }
+            if (game.advance()) {
+                std::int32_t fy = ydist(engine), fx = xdist(engine);
+                while (game.body_intersects(fy, fx) && !game.cells[fy][fx]) {
+                    fy = ydist(engine);
+                    fx = xdist(engine);
+                }
+                game.cells[fy][fx] = true;
+            }
+            if (game.is_out()) {
+                end_flag = true;
+                return;
+            }
             game.out(win);
         }
     };
 
     std::jthread displayt(displayl);
 
+    nodelay(win, true);
+
     chtype chin = '\0';
-    while ((chin = wgetch(win)) != 'q') {
+    while (chin != 'q' && !end_flag) {
+        chin = ERR;
+        while (chin == ERR && !end_flag) {
+            chin = wgetch(win);
+        }
+        if (end_flag) { break; }
 
         switch (chin) {
             case 'w':
@@ -197,14 +345,17 @@ int main() {
                 break;
 
             default:
-                game.advance();
-                game.out(win);
-                wrefresh(win);
                 continue;
         }
     }
 
+    displayt.request_stop();
+
     deinit_ncurses(win);
+
+    for (const SnakeBody& piece : game.body) {
+        std::cout << piece.count << ' ' << piece.direction << '\n';
+    }
     
     return 0;
 }
