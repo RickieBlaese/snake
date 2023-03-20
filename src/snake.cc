@@ -307,7 +307,7 @@ int main() {
     noecho();
 
     Game game(y, x);
-    if (std::max(y, x) == x) {
+    if (x > y) {
         game.head()->direction = Direction::left;
     }
 
